@@ -3,7 +3,6 @@ Helper functions to do Monte Carlo simulations.
 """
 
 import numpy as np
-from scipy.stats import norm
 
 
 def get_samples_final(n_samples, params, antithetic=False, moment_matching=False):
