@@ -9,8 +9,5 @@ wheels/
 # Virtual environments
 .venv
 
-# Test files
-test.ipynb
-
 # Workspace
 *.code-workspace
