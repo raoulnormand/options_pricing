@@ -4,11 +4,17 @@ Helper functions to do Monte Carlo simulations.
 
 import numpy as np
 
+# Functions to obtain samples
 
-def get_samples_final(n_samples, params, antithetic=False, moment_matching=False):
+
+def get_samples_final_value(n_samples, params, antithetic=False, moment_matching=False):
     """
-    Provides n_samples samples of the final price of a stock S_T under
-    the risk-neutral measure.
+    Provides samples of the final price of a stock S_T under
+    the risk-neutral measure. Note that n_samples can be an int or a tuple, where axes are as follows:
+    _ axis 0 is used to estimate expectations;
+    _ axis 1 is used to obtain different estimates of the expectation to compute a variance;
+    _ axis 2 is to compute for different parameters
+    _ axis 3 is the time axis (for trajectories).
 
     Here params = dictionary with keys
     _ 'S0' = price at t = 0
@@ -27,41 +33,95 @@ def get_samples_final(n_samples, params, antithetic=False, moment_matching=False
         samples = np.concatenate((samples, -samples))
     if moment_matching:
         # The centering does nothing if antithetic
-        samples = (samples - np.mean(samples)) / np.std(samples)
+        samples = (samples - np.mean(samples, axis=0)) / np.std(samples, axis=0)
     # Extract parameters for clarity
     S0 = params["S0"]
     r = params["r"]
     sigma = params["sigma"]
     T = params["T"]
-    # Return the correct disribution.
+    # Return the correct distribution.
     return S0 * np.exp((r - sigma**2 / 2) * T + sigma * np.sqrt(T) * samples)
 
 
-def get_samples_trajectory(
-    n_samples, n_intervals, params, antithetic=False, moment_matching=False
-):
+def get_samples_trajectory(n_samples, params, antithetic=False, moment_matching=False):
     """
-    Provides n_samples samples of the whole geometric Brownian motion (S_t) under the risk-neutral measure, with the interval [0, T] discretized in
-    n_intervals intervals.
+    Provides samples of the whole geometric Brownian motion (S_t) under the risk-neutral measure, with the interval [0, T] discretized. Note that n_samples should be a tuple with lenth at least 2, where axes are as follows:
+    _ axis 0 is used to estimate expectations;
+    _ axis 1 is the time axis (for trajectories).
+    _ axis 2 is used to obtain different estimates of the expectation to compute a variance;
+    _ axis 3 is to compute for different parameters.
 
-    Same arguments as above.
+    The other arguments are as above.
     """
     # Get standard normal samples
-    samples = np.random.normal(loc=0, scale=1, size=(n_samples, n_intervals))
+    samples = np.random.normal(loc=0, scale=1, size=n_samples)
     # Use variance reduction techniques if desired
     if antithetic:
         samples = np.concatenate((samples, -samples))
-    if moment_matching:
-        # The centering / rescaling should be done independently for each row.
-        samples = (samples - np.mean(samples, axis=1)) / np.std(samples, axis=1)
+    # Add inital value of 0
+    zeroes = np.zeros((samples.shape[0], 1, *samples.shape[2:]))
+    samples = np.concat((zeroes, samples), axis=1)
+    # Get Brownian motion samples
+    BM_samples = np.cumsum(samples, axis=1)
     # Extract parameters for clarity
     S0 = params["S0"]
     r = params["r"]
     sigma = params["sigma"]
     T = params["T"]
-    # The cumulative sum returns a Brownian motion, but we need to rescale.
-    BM_samples = np.sqrt(T / n_intervals) * np.cumsum(samples, axis=1)
-    # The drift is just a linear function, discretized n_intervals times
-    drift = np.linspace(0, T, n_intervals)
+    # Compute the drift
+    drift = np.ones(samples.shape)
+    drift[:, 1] = 0
+    drift = np.cumsum(drift, axis=1)
+    # Obtain the geometric BM by rescaling
+    GBM_samples = np.exp(
+        sigma * np.sqrt(T / n_samples[1]) * BM_samples
+        + (r - sigma**2 / 2) * T / n_samples[1] * drift
+    )
+    # Use moment matching with geometric BM, as described in Art Owen's book, Ch.8. Note E(S_t) = e^(rt).
+    if moment_matching:
+        GBM_samples = (
+            GBM_samples
+            * np.exp(r * T / n_samples[1] * drift)
+            / np.mean(GBM_samples, axis=0)
+        )
     # Return the correct distribution
-    return S0 * np.exp(sigma * BM_samples + (r - sigma**2 / 2) * drift)
+    return S0 * GBM_samples
+
+
+# Functions to compute prices using MC
+
+
+def MC_european_call_price(
+    n_samples, params, K, antithetic=False, moment_matching=False
+):
+    """
+    Computes the price a European call option struck at K, using
+    Monte Carlo.
+
+    Same arguments as above.
+    """
+    # Get samples of the final value S_T
+    samples = get_samples_final_value(n_samples, params, antithetic, moment_matching)
+    # Compute f(S_T) for the pay_off f
+    samples = np.maximum(samples - K, 0)
+    # Return the average, which gives an estimator of the expectation.
+    return np.exp(-params["r"] * params["T"]) * np.mean(samples, axis=0)
+
+
+def MC_barrier_call_price(
+    n_samples, params, H, K, antithetic=False, moment_matching=False
+):
+    """
+    Returns the price of a down-and-out call option
+    struck at K with barrier H < K, using Monte Carlo.
+
+    Same arguments as above.
+    """
+    # Get samples of the final value S_T
+    samples = get_samples_trajectory(n_samples, params, antithetic, moment_matching)
+    # Check if the barrier is hit
+    hit_barrier = ~np.any(samples < H, axis=1)
+    # Small trick: if hit, multiply payoff by False (0), otherwise by True (1)
+    samples = hit_barrier * np.maximum(samples[:, -1, :] - K, 0)
+    # Return the average, which gives an estimator of the expectation.
+    return np.exp(-params["r"] * params["T"]) * np.mean(samples, axis=0)
