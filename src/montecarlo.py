@@ -13,8 +13,7 @@ def get_samples_final_value(n_samples, params, antithetic=False, moment_matching
     the risk-neutral measure. Note that n_samples can be an int or a tuple, where axes are as follows:
     _ axis 0 is used to estimate expectations;
     _ axis 1 is used to obtain different estimates of the expectation to compute a variance;
-    _ axis 2 is to compute for different parameters
-    _ axis 3 is the time axis (for trajectories).
+    _ axis 2 is to compute for different parameters.
 
     Here params = dictionary with keys
     _ 'S0' = price at t = 0
@@ -31,8 +30,8 @@ def get_samples_final_value(n_samples, params, antithetic=False, moment_matching
     # Use variance reduction techniques if desired
     if antithetic:
         samples = np.concatenate((samples, -samples))
+    # Moment matching could be done on the log-normal distribution below, but this works well.
     if moment_matching:
-        # The centering does nothing if antithetic
         samples = (samples - np.mean(samples, axis=0)) / np.std(samples, axis=0)
     # Extract parameters for clarity
     S0 = params["S0"]
@@ -109,7 +108,7 @@ def MC_european_call_price(
 
 
 def MC_barrier_call_price(
-    n_samples, params, H, K, antithetic=False, moment_matching=False
+    n_samples, params, K, H, antithetic=False, moment_matching=False
 ):
     """
     Returns the price of a down-and-out call option
