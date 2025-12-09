@@ -69,7 +69,7 @@ def get_samples_trajectory(n_samples, params, antithetic=False, moment_matching=
     T = params["T"]
     # Compute the drift
     drift = np.ones(samples.shape)
-    drift[:, 1] = 0
+    drift[:, 0] = 0
     drift = np.cumsum(drift, axis=1)
     # Obtain the geometric BM by rescaling
     GBM_samples = np.exp(
